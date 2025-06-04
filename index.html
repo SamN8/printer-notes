@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Printer Notes Tracker</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
 </head>
 <body class="bg-gray-100 text-gray-900 p-4">
   <div id="app" class="max-w-xl mx-auto space-y-6">
@@ -37,12 +39,37 @@
     <div id="note-details" class="hidden p-4 border rounded bg-white">
       <h3 class="font-bold">Note Details</h3>
       <pre id="noteContent" class="whitespace-pre-wrap"></pre>
-      <button onclick="hideNoteDetails()" class="mt-2 text-sm text-blue-600 underline">Back</button>
+      <button onclick="deleteCurrentNote()" class="mt-2 bg-red-500 text-white px-3 py-1 rounded">Delete Note</button>
+      <button onclick="hideNoteDetails()" class="mt-2 ml-2 text-sm text-blue-600 underline">Back</button>
     </div>
   </div>
 
   <script>
-    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz440psMl5dvuE7NdBrBEHH9mtruijQ4yXNZTVxvZfqa15M4ysXy9Yc2jjJaUqm122c6g/exec";
+    const firebaseConfig = {
+      apiKey: "AIzaSyA2amhUwXXxKVeiGq970B-ct5MJkGPjXOY",
+      authDomain: "printer-notes.firebaseapp.com",
+      databaseURL: "https://printer-notes-default-rtdb.firebaseio.com",
+      projectId: "printer-notes",
+      storageBucket: "printer-notes.firebasestorage.app",
+      messagingSenderId: "1035456902922",
+      appId: "1:1035456902922:web:668753ec06d5f40cfd6cf3"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let currentNotePath = null;
+
+    function formatDateTime(dateObj) {
+      return dateObj.toLocaleString("en-US", {
+        month: "2-digit",
+        day: "2-digit",
+        year: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true
+      });
+    }
 
     function showNewNoteForm() {
       document.getElementById('new-note').classList.remove('hidden');
@@ -54,7 +81,7 @@
       document.getElementById('view-notes').classList.remove('hidden');
       document.getElementById('new-note').classList.add('hidden');
       document.getElementById('note-details').classList.add('hidden');
-      loadNotesFromSheet();
+      loadNotes();
     }
 
     function saveNote() {
@@ -62,46 +89,49 @@
       const printer = document.getElementById('printer').value.trim().toUpperCase();
       const error = document.getElementById('error').value.trim();
       const notesText = document.getElementById('notes').value.trim();
+
       if (!building || !/^\w\d+$/.test(printer) || !error || !notesText) {
         alert('Please fill all fields correctly.');
         return;
       }
 
-      fetch(SCRIPT_URL, {
-        method: 'POST',
-        body: JSON.stringify({ building, printer, error, notes: notesText }),
-        headers: { 'Content-Type': 'application/json' },
-      })
-      .then(res => res.text())
-      .then(() => {
-        alert('Note saved to Google Sheets.');
-        document.getElementById('building').value = '';
-        document.getElementById('printer').value = '';
-        document.getElementById('error').value = '';
-        document.getElementById('notes').value = '';
-      })
-      .catch(err => alert('Error saving note: ' + err));
+      const timestamp = formatDateTime(new Date());
+      const noteData = { building, printer, error, notes: notesText, time: timestamp };
+      const ref = db.ref(`notes/${building}/${printer}`).push();
+      ref.set(noteData)
+        .then(() => alert('Note saved successfully.'))
+        .catch(err => alert('Error: ' + err.message));
+
+      document.getElementById('building').value = '';
+      document.getElementById('printer').value = '';
+      document.getElementById('error').value = '';
+      document.getElementById('notes').value = '';
     }
 
-    function loadNotesFromSheet() {
-      fetch(SCRIPT_URL)
-        .then(res => res.json())
-        .then(rows => {
-          const container = document.getElementById('notesContainer');
-          container.innerHTML = '';
-          rows.slice(1).reverse().forEach(row => {
-            const [time, building, printer, error, notes] = row;
-            const btn = document.createElement('button');
-            btn.className = 'block w-full text-left bg-white p-2 border rounded hover:bg-gray-50';
-            btn.textContent = `${time} | ${building} - ${printer}`;
-            btn.onclick = () => showNoteDetails({ time, building, printer, error, notes });
-            container.appendChild(btn);
+    function loadNotes() {
+      const container = document.getElementById('notesContainer');
+      container.innerHTML = '';
+
+      db.ref('notes').once('value').then(snapshot => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        Object.entries(data).forEach(([building, printers]) => {
+          Object.entries(printers).forEach(([printer, notes]) => {
+            Object.entries(notes).forEach(([id, note]) => {
+              const btn = document.createElement('button');
+              btn.className = 'block w-full text-left bg-white p-2 border rounded hover:bg-gray-50';
+              btn.textContent = `${note.time} | ${building} - ${printer}`;
+              btn.onclick = () => showNoteDetails(note, `notes/${building}/${printer}/${id}`);
+              container.appendChild(btn);
+            });
           });
-        })
-        .catch(err => alert('Error loading notes: ' + err));
+        });
+      });
     }
 
-    function showNoteDetails(note) {
+    function showNoteDetails(note, path) {
+      currentNotePath = path;
       document.getElementById('note-details').classList.remove('hidden');
       document.getElementById('new-note').classList.add('hidden');
       document.getElementById('view-notes').classList.add('hidden');
@@ -111,6 +141,20 @@
     function hideNoteDetails() {
       document.getElementById('note-details').classList.add('hidden');
       document.getElementById('view-notes').classList.remove('hidden');
+      currentNotePath = null;
+    }
+
+    function deleteCurrentNote() {
+      if (!currentNotePath) return;
+      if (confirm('Are you sure you want to delete this note?')) {
+        db.ref(currentNotePath).remove()
+          .then(() => {
+            alert('Note deleted.');
+            hideNoteDetails();
+            loadNotes();
+          })
+          .catch(err => alert('Error deleting note: ' + err.message));
+      }
     }
   </script>
 </body>
