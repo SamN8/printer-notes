@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Printer Notes Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-900 p-4">
+  <div id="app" class="max-w-xl mx-auto space-y-6">
+    <h1 class="text-2xl font-bold text-center">Printer Notes Tracker</h1>
+
+    <div class="flex justify-center space-x-4">
+      <button onclick="showNewNoteForm()" class="bg-blue-500 text-white px-4 py-2 rounded">New Note</button>
+      <button onclick="showNoteViewer()" class="bg-green-500 text-white px-4 py-2 rounded">View Notes</button>
+    </div>
+
+    <div id="new-note" class="hidden space-y-4">
+      <h2 class="text-xl font-semibold">Create a New Note</h2>
+      <select id="building" class="w-full p-2 border rounded">
+        <option value="">Select Building</option>
+        <option>HQ</option>
+        <option>Warehouse</option>
+        <option>HQ 2</option>
+      </select>
+      <input id="printer" placeholder="Printer (e.g., A1)" class="w-full p-2 border rounded" />
+      <input id="error" placeholder="Error Description" class="w-full p-2 border rounded" />
+      <textarea id="notes" placeholder="General Notes" class="w-full p-2 border rounded"></textarea>
+      <button onclick="saveNote()" class="bg-blue-600 text-white px-4 py-2 rounded w-full">Save Note</button>
+    </div>
+
+    <div id="view-notes" class="hidden space-y-4">
+      <h2 class="text-xl font-semibold">View Notes</h2>
+      <div id="notesContainer" class="space-y-2"></div>
+    </div>
+
+    <div id="note-details" class="hidden p-4 border rounded bg-white">
+      <h3 class="font-bold">Note Details</h3>
+      <pre id="noteContent" class="whitespace-pre-wrap"></pre>
+      <button onclick="hideNoteDetails()" class="mt-2 text-sm text-blue-600 underline">Back</button>
+    </div>
+  </div>
+
+  <script>
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz440psMl5dvuE7NdBrBEHH9mtruijQ4yXNZTVxvZfqa15M4ysXy9Yc2jjJaUqm122c6g/exec";
+
+    function showNewNoteForm() {
+      document.getElementById('new-note').classList.remove('hidden');
+      document.getElementById('view-notes').classList.add('hidden');
+      document.getElementById('note-details').classList.add('hidden');
+    }
+
+    function showNoteViewer() {
+      document.getElementById('view-notes').classList.remove('hidden');
+      document.getElementById('new-note').classList.add('hidden');
+      document.getElementById('note-details').classList.add('hidden');
+      loadNotesFromSheet();
+    }
+
+    function saveNote() {
+      const building = document.getElementById('building').value.trim();
+      const printer = document.getElementById('printer').value.trim().toUpperCase();
+      const error = document.getElementById('error').value.trim();
+      const notesText = document.getElementById('notes').value.trim();
+      if (!building || !/^\w\d+$/.test(printer) || !error || !notesText) {
+        alert('Please fill all fields correctly.');
+        return;
+      }
+
+      fetch(SCRIPT_URL, {
+        method: 'POST',
+        body: JSON.stringify({ building, printer, error, notes: notesText }),
+        headers: { 'Content-Type': 'application/json' },
+      })
+      .then(res => res.text())
+      .then(() => {
+        alert('Note saved to Google Sheets.');
+        document.getElementById('building').value = '';
+        document.getElementById('printer').value = '';
+        document.getElementById('error').value = '';
+        document.getElementById('notes').value = '';
+      })
+      .catch(err => alert('Error saving note: ' + err));
+    }
+
+    function loadNotesFromSheet() {
+      fetch(SCRIPT_URL)
+        .then(res => res.json())
+        .then(rows => {
+          const container = document.getElementById('notesContainer');
+          container.innerHTML = '';
+          rows.slice(1).reverse().forEach(row => {
+            const [time, building, printer, error, notes] = row;
+            const btn = document.createElement('button');
+            btn.className = 'block w-full text-left bg-white p-2 border rounded hover:bg-gray-50';
+            btn.textContent = `${time} | ${building} - ${printer}`;
+            btn.onclick = () => showNoteDetails({ time, building, printer, error, notes });
+            container.appendChild(btn);
+          });
+        })
+        .catch(err => alert('Error loading notes: ' + err));
+    }
+
+    function showNoteDetails(note) {
+      document.getElementById('note-details').classList.remove('hidden');
+      document.getElementById('new-note').classList.add('hidden');
+      document.getElementById('view-notes').classList.add('hidden');
+      document.getElementById('noteContent').textContent = `Building: ${note.building}\nPrinter: ${note.printer}\nTime: ${note.time}\nError: ${note.error}\nNotes: ${note.notes}`;
+    }
+
+    function hideNoteDetails() {
+      document.getElementById('note-details').classList.add('hidden');
+      document.getElementById('view-notes').classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>
